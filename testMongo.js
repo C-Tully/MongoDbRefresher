@@ -14,7 +14,13 @@ async function run() {
     // const result = await collection.findOne({
     //   "key":"value"
     // });
-    /* OR operation */
+    /* OR operation 
+      
+      Ensure write durability	writeConcern: { w: 'majority' }
+      Ensure read sees latest	readConcern:  { level: 'majority' }
+      Strongest consistency	readConcern: 'linearizable' (primary only)
+    
+    */
     // const result = await collection.find({
     //   $or: [{ status: 'A' }, { qty: { $lt: 30 } }]
     // });
@@ -26,14 +32,14 @@ async function run() {
     // });
 
     // const result = await collection.insertOne( {
-  //   item: 'journal',
-  //   qty: 25,
-  //   size: { h: 14, w: 21, uom: 'cm' },
-  //   status: 'A'
-  // });
-  // const result = await collection.insertMany([
+    //   item: 'journal',
+    //   qty: 25,
+    //   size: { h: 14, w: 21, uom: 'cm' },
+    //   status: 'A'
+    // });
+    // const result = await collection.insertMany([
     // {},{}
-  // ]);
+    // ]);
     // const result = await collection.updateOne({},{});
 
     /** Understanding updateOne and document reading */
@@ -42,7 +48,7 @@ async function run() {
     //   { $set: { value: 'new' } },
     //   { writeConcern: { w: 'majority' } }
     // );
-    
+
     // // Now safely read
     // const result = await collection.findOne(
     //   { _id: 1 },
@@ -53,24 +59,39 @@ async function run() {
   }
 }
 
- 
-
-async function run() { 
-
+/** Transactions */
+async function transactionTest() {
   const client = new MongoClient(DB_URL);
-  await client.connect(DB_NAME);   
+  let session;
 
-  const db = client.db('test'); 
-  const collection = db.collection('people'); 
+  try {
+    await client.connect();
+    const db = client.db(DB_NAME);
+    session = client.startSession();
 
-  
+    await session.withTransaction(async () => {
+      const accounts = db.collection("accounts");
 
-  // Replace a document where name is "Alice" 
+      // Withdraw from Alice
+      await accounts.updateOne(
+        { name: "Alice" },
+        { $inc: { balance: -100 } },
+        { session }
+      );
 
-  const result = await collection.replaceOne( 
-
-    { name: 'Alice' },  // filter 
-
-    { name: 'Alice', age: 30, city: 'Toronto' } // replacement 
-
-  ); 
+      // Deposit to Bob
+      await accounts.updateOne(
+        { name: "Bob" },
+        { $inc: { balance: 100 } },
+        { session }
+      );
+    });
+  } catch (err) {
+    console.error("Transaction aborted:", err);
+  } finally {
+    if (session) {
+      await session.endSession();
+    }
+    await client.close();
+  }
+}
