@@ -59,7 +59,12 @@ async function run() {
   }
 }
 
-/** Transactions */
+/** Transactions
+ * Note: Transactions are slower than a single operation and blocks
+ * other operations while running. You need sharded clusterswith config to support
+ * distributed trsnastions. Max size of 16MBper document applies
+ *
+ */
 async function transactionTest() {
   const client = new MongoClient(DB_URL);
   let session;
@@ -92,6 +97,50 @@ async function transactionTest() {
     if (session) {
       await session.endSession();
     }
+    await client.close();
+  }
+}
+
+async function tractionactionRollBack() {
+  const client = new MongoClient(DB_URL);
+  let session;
+
+  try {
+    await client.connect();
+    const db = client.db(DB_NAME);
+    const accounts = db.collection("accounts");
+
+    session = client.startSession();
+
+    await session.withTransaction(async () => {
+      console.log("Transaction Start::");
+
+      //widthraw one
+      await accounts.updateOne(
+        { name: "Lorem" },
+        { $inc: { balance: -100 } },
+        { session }
+      );
+      console.log("Inital debt");
+
+      //create error
+      await accounts.updateOne(
+        { name: "dollar" },
+        { $wrong: { balance: 1000 } }, //$wrong doesn't exist...,
+        { session }
+      );
+      console.log('You should not see this message...');      
+    },
+  {
+    readoncern: { level: 'majority'},
+    writeConcern: {w: "majority"}
+  });
+
+  } catch (err) {
+    console.error(`Transaction Aborted:: roll back:: ${err.message}`)''
+
+  } finally {
+    if(session) await session.endSession();
     await client.close();
   }
 }
